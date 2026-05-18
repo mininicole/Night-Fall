@@ -22,6 +22,64 @@ breath / hold / grow / trace / pulse / dream
 6. Each surfacing evaluation that does not pick the dream increments `surface_attempts`. A dream is not removed by wall-clock time — it is deleted only after it has been evaluated `MAX_SURFACE_ATTEMPTS` (4) times and still not surfaced.
 7. Surfaced dreams are returned through a dedicated channel and do not automatically enter long-term memory. A surfaced dream is preserved only if the user or Claude explicitly performs a hold-like action on it.
 
+## Cloud Deployment (Zeabur / Railway / Render)
+
+Night Fall provides a `Dockerfile` that fetches Ombre Brain at build time via `git clone`. No Ombre source code lives in this repository. The result is a single MCP service exposing all Ombre tools plus `night_fall`.
+
+### How it works
+
+```
+docker build (OMBRE_REPO=...) → image contains /ombre + /app
+python -m night_fall.launcher → one MCP server at :8000
+Claude Desktop → mcp-remote → https://your-host.app/mcp (7 tools)
+```
+
+### Deploy to Zeabur
+
+1. Fork this Night Fall repository to your GitHub account.
+2. In Zeabur, create a new service and import your forked repository.
+3. Zeabur reads `zeabur.json` and builds from `Dockerfile` automatically.
+4. Set the following environment variables in the Zeabur dashboard:
+
+   | Variable | Required | Notes |
+   |----------|----------|-------|
+   | `OMBRE_API_KEY` | ✅ | Your DeepSeek / LLM provider key |
+   | `OMBRE_REPO` | optional | Defaults to the upstream Ombre repo; set to your own fork URL if needed |
+   | `OMBRE_BRANCH` | optional | Defaults to `main` |
+   | `OMBRE_PORT` | optional | Defaults to `8000` |
+
+5. Mount a persistent volume at `/app/data` to preserve bucket data and dreams across restarts.
+6. After deployment, update your Claude Desktop config:
+
+   ```json
+   "ombre-brain": {
+     "command": "npx",
+     "args": ["-y", "mcp-remote", "https://your-night-fall.zeabur.app/mcp"]
+   }
+   ```
+
+   Claude will see all original Ombre tools plus `night_fall` through a single endpoint.
+
+### Railway / Render
+
+The same `Dockerfile` works with Railway and Render. Point them at your forked Night Fall repository and set the same environment variables.
+
+### Build locally with Docker
+
+```bash
+docker build \
+  --build-arg OMBRE_REPO=https://github.com/P0luz/Ombre-Brain.git \
+  -t night-fall .
+
+docker run \
+  -e OMBRE_API_KEY=sk-xxxx \
+  -p 8000:8000 \
+  -v $(pwd)/data:/app/data \
+  night-fall
+```
+
+---
+
 ## Local Python Setup
 
 Install Ombre Brain first. Then download or clone Night Fall anywhere you like. It is convenient during development to place the folders beside each other:

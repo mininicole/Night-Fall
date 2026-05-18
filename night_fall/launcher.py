@@ -28,7 +28,8 @@ def import_ombre_server(ombre_home: Path):
 
 
 def run_ombre_server(ombre_server) -> None:
-    transport = ombre_server.config.get("transport", "stdio")
+    # OMBRE_TRANSPORT env var takes precedence (used by Docker / cloud deployments).
+    transport = os.environ.get("OMBRE_TRANSPORT") or ombre_server.config.get("transport", "stdio")
     logger = getattr(ombre_server, "logger", None)
     if logger:
         logger.info(f"Ombre Brain starting with Night Fall | transport: {transport}")
