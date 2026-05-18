@@ -38,5 +38,8 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["night_fall*"]
 
+[tool.setuptools.package-data]
+night_fall = ["prompts/*.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
