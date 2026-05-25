@@ -128,21 +128,25 @@ Night-Fall 修复了这个问题：在无参浮现分支的末尾加入 auto-sur
 
 | 部署方式 | 是否需要手动操作 |
 |---|---|
-| 路径 C（Zeabur）/ 路径 D（Render） | ✅ 自动生效——Dockerfile 从本仓库直接构建，patch 已包含在内 |
-| 路径 B（Docker Compose 本地） | ✅ 自动生效——override 替换了启动命令，使用本仓库镜像 |
-| 路径 A（本地 Python） | ⚠️ 需要手动确认——你的 `Ombre-Brain/server.py` 必须包含此 patch，否则 `breath(arousal=X)` 不会触发浮梦 |
+| 路径 0（原地扩展） | ✅ 自动生效——patch 直接写进你自己的 Ombre fork |
+| 路径 A（本地 Python） | ⚠️ 需要手动确认——你的 `Ombre-Brain/server.py` 必须包含此 patch |
+| 路径 B（Docker Compose 本地） | ⚠️ 需要手动确认——override 挂载了 Night-Fall 代码，但 `server.py` 在上游镜像里，不含 patch |
+| 路径 C（Zeabur）/ 路径 D（Render） | ⚠️ 需要手动确认——`OMBRE_REPO` 默认拉上游 Ombre（无 patch），需设 build arg 指向已 patch 的 fork |
 
-路径 A 用户可在 `server.py` 的无参浮现分支末尾（`return "\n\n".join(parts)` 之前）确认存在如下逻辑：
+所有路径均需确认 `server.py` 无参浮现分支末尾（`return "\n\n".join(parts)` 之前）存在如下逻辑：
 
 ```python
 is_contextual_noquery = (valence != -1 or arousal != -1)
 if is_contextual_noquery and _night_fall_auto_surface is not None:
-    dream_block = await _night_fall_auto_surface()
-    if dream_block:
-        parts.append(dream_block)
+    try:
+        dream_block = await _night_fall_auto_surface()
+        if dream_block:
+            parts.append(dream_block)
+    except Exception as e:
+        logger.warning(f"Auto-surface failed / 自动浮梦失败: {e}")
 ```
 
-如果没有，从本仓库的 `Ombre-Brain/` 目录手动合并这段代码，或直接使用已 patch 的版本：`https://github.com/ysuu525/Ombre-Brain`。
+如果没有，参考路径 0 的步骤手动 patch，或直接使用已 patch 的 Ombre fork：`https://github.com/ysuu525/Ombre-Brain`。
 
 ---
 
@@ -303,7 +307,9 @@ docker compose \
 
 ### 路径 C：云端 Zeabur
 
-适用于已在 Zeabur 上部署了 Ombre Brain 的用户。云端方案是**用 Night-Fall 替换现有的 Ombre 部署**——Night-Fall 的 Dockerfile 会在构建时自动 clone Ombre，最终暴露同一个 MCP endpoint。
+> ⚠️ **已有 Ombre 部署、卷里有数据的用户，强烈建议走路径 0，不要走路径 C。** 路径 C 会在 Zeabur 上创建一个**全新的独立服务**，与原 Ombre 服务没有任何共享——数据卷独立、URL 不同、旧 Ombre 服务不会自动停止。你需要手动处理卷迁移和 Claude 配置切换，步骤繁琐且有数据丢失风险。
+
+适用于**全新部署、没有现有 Ombre 数据**的用户。Night-Fall 的 Dockerfile 会在构建时 clone Ombre 源码，最终暴露一个同时包含 Ombre 工具和 `night_fall` 工具的 MCP endpoint。
 
 **1. Fork Night-Fall 仓库**
 
@@ -313,36 +319,35 @@ docker compose \
 
 进入你的 Zeabur 项目 → **New Service** → **Deploy from GitHub** → 选择刚才 fork 的仓库。Zeabur 读取根目录的 `zeabur.json`（`"build_type": "dockerfile"`），自动用 Dockerfile 构建。
 
-**3. 设置环境变量**
+**3. 设置环境变量与 build arguments**
+
+环境变量（Environment Variables）：
 
 | 变量 | 必填 | 说明 |
 |---|---|---|
-| `OMBRE_API_KEY` | ✅ | 你的 DeepSeek / 兼容 API key |
-| `OMBRE_REPO` | 可选 | 默认拉上游 Ombre；有自己的 fork 时填 |
-| `OMBRE_BRANCH` | 可选 | 默认 `main` |
+| `OMBRE_API_KEY` | ✅ | 你的 DeepSeek / 兼容 API key（这是 LLM key，不是任何"密码"） |
 | `OMBRE_PORT` | 可选 | 默认 `8000` |
 
-**4. 挂载硬盘并对齐路径**
+Build Arguments（在 Zeabur 的构建设置里单独配置，**不是**环境变量）：
 
-Night-Fall 的 Dockerfile 默认把桶数据放在 `/app/data/buckets`、梦境数据放在 `/app/data/night_fall`。但如果你的现有 Ombre 硬盘直接挂在 `/data`（Ombre 的默认布局），**建议直接复用这块硬盘**，不需要迁移数据——额外设两个环境变量告诉 Night-Fall 路径就行：
+| Build Arg | 必填 | 说明 |
+|---|---|---|
+| `OMBRE_REPO` | 推荐 | 默认拉上游 `P0luz/Ombre-Brain`（**未包含 auto-surface patch**）；想用 patch 版填 `https://github.com/ysuu525/Ombre-Brain.git` |
+| `OMBRE_BRANCH` | 可选 | 默认 `main` |
+
+> ⚠️ `OMBRE_REPO` 是 Dockerfile 的 `ARG`，必须在 Zeabur 的 **Build Arguments** 里配置，设在 Environment Variables 里无效。不配则默认拉上游未 patch 的 Ombre，`breath(arousal=X)` 不会浮梦。
+
+**4. 挂载硬盘**
+
+全新部署直接在 Zeabur 挂一块新硬盘到 `/app/data` 即可，桶数据和梦境文件都会落在这里：
 
 ```
-OMBRE_BUCKETS_DIR=/data
-NIGHT_FALL_DATA_DIR=/data/night_fall
+/app/data/
+  ├─ buckets/        ← Ombre 记忆桶
+  └─ night_fall/     ← 梦境文件
 ```
 
-然后在 Zeabur 把原来那块硬盘挂载目录保持 `/data` 不变。最终布局：
-
-```
-/data/                      ← 原有硬盘，原封不动
-  ├─ <你的记忆 .md 们>
-  ├─ embeddings.db
-  └─ night_fall/            ← 梦境文件自动落在这里
-      ├─ dreams/dream_*.md
-      └─ logs/events.jsonl
-```
-
-如果你是全新部署、没有现有 Ombre 数据，不设这两个变量也行，Zeabur 挂新硬盘到 `/app/data` 即可。
+> ⚠️ **如果想接入旧 Ombre 的数据**，仅设环境变量 `OMBRE_BUCKETS_DIR=/data` 不够——Zeabur 上不同服务的卷是相互独立的。你需要在 Zeabur UI 里把**旧 Ombre 服务的那块卷** detach 后 attach 到本服务，挂载路径保持一致，再设对应的环境变量。操作前先停掉旧 Ombre 服务（停服务不会删卷数据）。**建议优先走路径 0 避开这个步骤。**
 
 **5. 更新 Claude Desktop 配置**
 
