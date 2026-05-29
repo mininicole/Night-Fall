@@ -78,26 +78,55 @@ class OmbreAdapter:
         max_tokens: int,
         temperature: float,
     ) -> str:
-        dehydrator = self.dehydrator
-        client = getattr(dehydrator, "client", None)
-        model = getattr(dehydrator, "model", "deepseek-chat")
-
-        if not client or not getattr(dehydrator, "api_available", False):
-            env_key = os.environ.get("DEEPSEEK_API_KEY", "")
-            if not env_key:
-                raise JsonModelError(
-                    "No LLM provider available. Configure Ombre's dehydration API or set DEEPSEEK_API_KEY."
-                )
+        # --- Priority 1: dedicated Night-Fall LLM (if NIGHT_FALL_API_KEY is set) ---
+        # Independent client for dream creation, isolated from Ombre's dehydrator.
+        # Use this when you want dream writing on a different model (e.g. Claude
+        # Opus for literary depth) while keeping the dehydrator on a cheap model.
+        nf_key = os.environ.get("NIGHT_FALL_API_KEY", "").strip()
+        if nf_key:
             try:
                 from openai import AsyncOpenAI
             except ImportError as exc:
-                raise JsonModelError("The openai package is required for DEEPSEEK_API_KEY provider.") from exc
+                raise JsonModelError(
+                    "The openai package is required for NIGHT_FALL_API_KEY provider."
+                ) from exc
             client = AsyncOpenAI(
-                api_key=env_key,
-                base_url=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
+                api_key=nf_key,
+                base_url=os.environ.get(
+                    "NIGHT_FALL_BASE_URL", "https://api.deepseek.com/v1"
+                ),
                 timeout=60.0,
             )
-            model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+            model = os.environ.get("NIGHT_FALL_MODEL", "deepseek-chat")
+        else:
+            # --- Priority 2: reuse Ombre's dehydrator client (legacy default) ---
+            dehydrator = self.dehydrator
+            client = getattr(dehydrator, "client", None)
+            model = getattr(dehydrator, "model", "deepseek-chat")
+
+            if not client or not getattr(dehydrator, "api_available", False):
+                # --- Priority 3: DEEPSEEK_API_KEY env-var fallback ---
+                env_key = os.environ.get("DEEPSEEK_API_KEY", "")
+                if not env_key:
+                    raise JsonModelError(
+                        "No LLM provider available. Configure Ombre's dehydration API, "
+                        "set DEEPSEEK_API_KEY, or set NIGHT_FALL_API_KEY for an "
+                        "independent dream-writing provider."
+                    )
+                try:
+                    from openai import AsyncOpenAI
+                except ImportError as exc:
+                    raise JsonModelError(
+                        "The openai package is required for DEEPSEEK_API_KEY provider."
+                    ) from exc
+                client = AsyncOpenAI(
+                    api_key=env_key,
+                    base_url=os.environ.get(
+                        "DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"
+                    ),
+                    timeout=60.0,
+                )
+                model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
 
         response = await client.chat.completions.create(
             model=model,
