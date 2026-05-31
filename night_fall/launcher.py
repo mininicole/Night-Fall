@@ -80,28 +80,6 @@ def run_ombre_server(ombre_server) -> None:
             allow_headers=["*"],
             expose_headers=["*"],
         )
-
-        # FastMCP 的 streamable-http endpoint 挂在 /mcp/（带尾斜杠）。
-        # 部分客户端发 /mcp（无斜杠），正常情况返回 307 redirect 但有些客户端
-        # 不跟随重定向；wake 瞬间还可能撞上路由未就绪的 404 窗口。
-        # 透明改写 path，省一次 round-trip + 避开 wake race。
-        if transport == "streamable-http":
-            inner_app = app
-
-            class _TrailingSlashMcpMiddleware:
-                def __init__(self, asgi_app):
-                    self._asgi = asgi_app
-
-                async def __call__(self, scope, receive, send):
-                    if scope["type"] == "http" and scope.get("path") == "/mcp":
-                        scope = dict(scope)
-                        scope["path"] = "/mcp/"
-                        if scope.get("raw_path") == b"/mcp":
-                            scope["raw_path"] = b"/mcp/"
-                    await self._asgi(scope, receive, send)
-
-            app = _TrailingSlashMcpMiddleware(inner_app)
-
         uvicorn.run(app, host="0.0.0.0", port=port)
     else:
         ombre_server.mcp.run(transport=transport)
